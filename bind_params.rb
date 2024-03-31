@@ -4,7 +4,7 @@
 require "bundler/inline"
 gemfile(true) do
   source "https://rubygems.org"
-  gem "activerecord", "~> 7.0"
+  gem "rails", github: "rails/rails", branch: "main"
   gem "rspec"
   gem "pg"
 end
@@ -21,9 +21,11 @@ DB_CONFIG = {
 
 ActiveRecord::Base.establish_connection(DB_CONFIG)
 
-ActiveRecord::Base.establish_connection(DB_CONFIG.merge(database: "postgres", ))
-ActiveRecord::Base.connection.drop_database("playground")
-# ActiveRecord::Base.connection.create_database("playground")
+ActiveRecord::Base.establish_connection(DB_CONFIG.merge(database: "postgres"))
+begin
+  ActiveRecord::Base.connection.drop_database("playground")
+rescue ActiveRecord::NoDatabaseError; end
+ActiveRecord::Base.connection.create_database("playground")
 
 ActiveRecord::Base.establish_connection(
   adapter: "postgresql",
@@ -37,6 +39,7 @@ ActiveRecord::Schema.define do
   create_table :posts, force: true do |t|
     t.text :body
     t.integer :comments_count, default: 0
+    t.timestamps
   end
 
   create_table :comments, force: true do |t|
@@ -59,13 +62,64 @@ RSpec.describe "Bind Params" do
     post.comments.create
     post.comments.create
 
-    result = Post.where(Post.arel_table['body'].matches(Arel::Nodes::BindParam.new(ActiveRecord::Relation::QueryAttribute.new('body', "%hello%", ActiveRecord::Type::String.new))))
-    expect(result.to_a).to eq([post])
+    relation = Post.where("body ILIKE ?", "%hello%")
+    expect(relation.to_a).to eq([post])
+    _query, binds, prepared = Post.connection.send :to_sql_and_binds, relation.arel
+    expect(binds.size).to eq 1
+    expect(prepared).to eq true
 
-    result = Post.where(Post.arel_table['body'].matches(Arel::Nodes::BindParam.new(ActiveRecord::Relation::QueryAttribute.new('body', "%hello%", ActiveRecord::Type::String.new))))
-    expect(result.to_a).to eq([post])
+    relation = Post.where(Post.arel_table['body'].matches("%hello%"))
+    expect(relation.to_a).to eq([post])
+    _query, binds, prepared = Post.connection.send :to_sql_and_binds, relation.arel
+    expect(binds.size).to eq 0
+    expect(prepared).to eq true
 
-    result = Post.where(Post.arel_table['comments_count'].gteq(Arel::Nodes::BindParam.new(ActiveRecord::Relation::QueryAttribute.new('comments_count', 1, ActiveRecord::Type::Integer.new))))
-    expect(result.count).to eq(1)
+    relation = Post.where(Post.arel_table['body'].matches(ActiveRecord::Relation::QueryAttribute.new('body', "%hello%", ActiveRecord::Type::String.new)))
+    expect(relation.to_a).to eq([post])
+    _query, binds, prepared = Post.connection.send :to_sql_and_binds, relation.arel
+    expect(binds.size).to eq 1
+    expect(prepared).to eq true
+
+    relation = Post.where("created_at > ?", 10.minutes.ago)
+    expect(relation.to_a).to eq([post])
+    _query, binds, prepared = Post.connection.send :to_sql_and_binds, relation.arel
+    expect(binds.size).to eq 1
+    expect(prepared).to eq true
+
+    relation = Post.where(Post.arel_table['created_at'].gt(10.minutes.ago))
+    expect(relation.to_a).to eq([post])
+    _query, binds, prepared = Post.connection.send :to_sql_and_binds, relation.arel
+    expect(binds.size).to eq 0
+    expect(prepared).to eq true # <-- wild
+
+    relation = Post.where(Post.arel_table['created_at'].gt(ActiveRecord::Relation::QueryAttribute.new('created_at', 10.minutes.ago, ActiveRecord::Type::DateTime.new)))
+    expect(relation.to_a).to eq([post])
+    _query, binds, prepared = Post.connection.send :to_sql_and_binds, relation.arel
+    expect(binds.size).to eq 1
+    expect(prepared).to eq true
+
+    relation = Post.where("comments_count >= ?", 1)
+    expect(relation.to_a).to eq([post])
+    _query, binds, prepared = Post.connection.send :to_sql_and_binds, relation.arel
+    expect(binds.size).to eq 1
+    expect(prepared).to eq true
+
+    relation = Post.where(Post.arel_table['comments_count'].gteq(1))
+    expect(relation.to_a).to eq([post])
+    _query, binds, prepared = Post.connection.send :to_sql_and_binds, relation.arel
+    expect(binds.size).to eq 0
+    expect(prepared).to eq true
+
+    relation = Post.where(Post.arel_table['comments_count'].gteq(ActiveRecord::Relation::QueryAttribute.new('comments_count', 1, ActiveRecord::Type::Integer.new)))
+    expect(relation.to_a).to eq([post])
+    _query, binds, prepared = Post.connection.send :to_sql_and_binds, relation.arel
+    expect(binds.size).to eq 1
+    expect(prepared).to eq true
+
+    # query = Post.where(Post.arel_table['body'].matches(Arel::Nodes::BindParam.new(ActiveRecord::Relation::QueryAttribute.new('body', "%hello%", ActiveRecord::Type::String.new))))
+    # expect(query.to_a).to eq([post])
+    #
+    # query = Post.where(Post.arel_table['comments_count'].gteq(Arel::Nodes::BindParam.new()))
+    # expect(query.count).to eq(1)
   end
 end
