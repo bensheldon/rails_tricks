@@ -4,7 +4,7 @@
 require "bundler/inline"
 gemfile(true) do
   source "https://rubygems.org"
-  gem "rails", github: "rails/rails", branch: "main"
+  gem "rails", "7.1" # github: "rails/rails", branch: "main"
   gem "rspec"
   gem "pg"
 end
@@ -65,8 +65,8 @@ RSpec.describe "Bind Params" do
     relation = Post.where("body ILIKE ?", "%hello%")
     expect(relation.to_a).to eq([post])
     _query, binds, prepared = Post.connection.send :to_sql_and_binds, relation.arel
-    expect(binds.size).to eq 1
-    expect(prepared).to eq true
+    expect(binds.size).to eq 0
+    expect(prepared).to eq false
 
     relation = Post.where(Post.arel_table['body'].matches("%hello%"))
     expect(relation.to_a).to eq([post])
@@ -81,6 +81,12 @@ RSpec.describe "Bind Params" do
     expect(prepared).to eq true
 
     relation = Post.where("created_at > ?", 10.minutes.ago)
+    expect(relation.to_a).to eq([post])
+    _query, binds, prepared = Post.connection.send :to_sql_and_binds, relation.arel
+    expect(binds.size).to eq 0
+    expect(prepared).to eq false
+
+    relation = Post.where(created_at: 10.minutes.ago..)
     expect(relation.to_a).to eq([post])
     _query, binds, prepared = Post.connection.send :to_sql_and_binds, relation.arel
     expect(binds.size).to eq 1
@@ -101,8 +107,8 @@ RSpec.describe "Bind Params" do
     relation = Post.where("comments_count >= ?", 1)
     expect(relation.to_a).to eq([post])
     _query, binds, prepared = Post.connection.send :to_sql_and_binds, relation.arel
-    expect(binds.size).to eq 1
-    expect(prepared).to eq true
+    expect(binds.size).to eq 0
+    expect(prepared).to eq false
 
     relation = Post.where(Post.arel_table['comments_count'].gteq(1))
     expect(relation.to_a).to eq([post])
